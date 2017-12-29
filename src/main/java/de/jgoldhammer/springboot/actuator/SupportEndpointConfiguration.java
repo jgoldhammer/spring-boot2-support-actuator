@@ -2,7 +2,9 @@ package de.jgoldhammer.springboot.actuator;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.audit.AuditEventsEndpoint;
+import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.autoconfigure.endpoint.condition.ConditionalOnEnabledEndpoint;
+import org.springframework.boot.actuate.autoconfigure.web.servlet.RequestMappingEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.context.properties.ConfigurationPropertiesReportEndpoint;
 import org.springframework.boot.actuate.env.EnvironmentEndpoint;
@@ -14,6 +16,7 @@ import org.springframework.boot.actuate.logging.LogFileWebEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.management.HeapDumpWebEndpoint;
 import org.springframework.boot.actuate.management.ThreadDumpEndpoint;
+import org.springframework.boot.actuate.scheduling.ScheduledTasksEndpoint;
 import org.springframework.boot.actuate.trace.TraceEndpoint;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -41,10 +44,13 @@ public class SupportEndpointConfiguration {
 			@Autowired(required = false) HeapDumpWebEndpoint headDumpEndpoint,
 			@Autowired(required = false) MeterRegistry meterRegistry,
 			@Autowired(required = false) TraceEndpoint traceEndpoint,
+			@Autowired(required = false) ScheduledTasksEndpoint scheduledTasksEndpoint, @Autowired(required = false) RequestMappingEndpoint requestMappingEndpoint,
+										   @Autowired(required = false) ConditionsReportEndpoint conditionsReportEndpoint,
+
 			@Autowired ObjectMapper objectMapper) {
 
 		return new SupportEndpoint(beansEndpoint, infoEndpoint, healthEndpoint, threadDumpEndpoint, auditEventsEndpoint,
 				configurationPropertiesReportEndpoint, envEndpoint, flywayEndpoint, liquibaseEndpoint, loggersEndpoint,
-				logFileWebEndpoint, headDumpEndpoint, meterRegistry, traceEndpoint, objectMapper);
+				logFileWebEndpoint, headDumpEndpoint, meterRegistry, traceEndpoint, scheduledTasksEndpoint, requestMappingEndpoint, conditionsReportEndpoint, objectMapper);
 	}
 }

@@ -1,4 +1,4 @@
-package de.jgoldhammer.springboot;
+package de.jgoldhammer.springboot.actuator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -11,15 +11,15 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.endpoint.web.WebEndpointResponse;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.Resource;
 import org.springframework.test.context.junit4.SpringRunner;
 import org.zeroturnaround.zip.ZipUtil;
 
-import de.jgoldhammer.springboot.actuator.SupportEndpoint;
-
 @RunWith(SpringRunner.class)
 @SpringBootTest
+@SpringBootApplication
 public class SupportEndpointTests {
 
 	@Autowired
@@ -36,7 +36,9 @@ public class SupportEndpointTests {
 		ZipUtil.unpack(body.getFile(), tempDirectory);
 		
 		File[] zipEntries = tempDirectory.listFiles();
+
 		boolean containsSupportEndpoint =false;
+
 		for (File zipEntry : zipEntries) {
 			boolean isBeansFile = zipEntry.getName().startsWith("beans");
 			if(isBeansFile) {

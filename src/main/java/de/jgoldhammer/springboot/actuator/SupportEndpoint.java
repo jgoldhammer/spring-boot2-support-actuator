@@ -2,6 +2,7 @@ package de.jgoldhammer.springboot.actuator;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.management.ThreadInfo;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,9 +18,10 @@ import java.util.zip.Deflater;
 
 import org.apache.commons.io.FileUtils;
 import org.springframework.boot.actuate.audit.AuditEventsEndpoint;
+import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
+import org.springframework.boot.actuate.autoconfigure.web.servlet.RequestMappingEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
 import org.springframework.boot.actuate.context.properties.ConfigurationPropertiesReportEndpoint;
-import org.springframework.boot.actuate.endpoint.DefaultEnablement;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
 import org.springframework.boot.actuate.endpoint.web.WebEndpointResponse;
@@ -32,6 +34,7 @@ import org.springframework.boot.actuate.logging.LogFileWebEndpoint;
 import org.springframework.boot.actuate.logging.LoggersEndpoint;
 import org.springframework.boot.actuate.management.HeapDumpWebEndpoint;
 import org.springframework.boot.actuate.management.ThreadDumpEndpoint;
+import org.springframework.boot.actuate.scheduling.ScheduledTasksEndpoint;
 import org.springframework.boot.actuate.trace.TraceEndpoint;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
@@ -46,7 +49,7 @@ import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.MeterRegistry.Search;
 
-@Endpoint(id = "support", defaultEnablement = DefaultEnablement.ENABLED)
+@Endpoint(id = "support", enableByDefault = true)
 public class SupportEndpoint {
 
 	private BeansEndpoint beansEndpoint;
@@ -64,6 +67,9 @@ public class SupportEndpoint {
 	private HeapDumpWebEndpoint heapDumpWebEndpoint;
 	private MeterRegistry meterRegistry;
 	private TraceEndpoint traceEndpoint;
+	private ScheduledTasksEndpoint scheduledTasksEndpoint;
+	private RequestMappingEndpoint requestMappingEndpoint;
+	private ConditionsReportEndpoint conditionsReportEndpoint;
 
 	private long timeout = TimeUnit.SECONDS.toMillis(2000);
 
@@ -78,6 +84,7 @@ public class SupportEndpoint {
 			EnvironmentEndpoint envEndpoint, FlywayEndpoint flywayEndpoint, LiquibaseEndpoint liquibaseEndpoint,
 			LoggersEndpoint loggersEndpoint, LogFileWebEndpoint logFileWebEndpoint,
 			HeapDumpWebEndpoint headDumpEndpoint, MeterRegistry meterRegistry, TraceEndpoint traceEndpoint,
+			ScheduledTasksEndpoint scheduledTasksEndpoint, RequestMappingEndpoint requestMappingEndpoint, ConditionsReportEndpoint conditionsReportEndpoint,
 			ObjectMapper objectMapper) {
 		this.beansEndpoint = beansEndpoint;
 		this.infoEndpoint = infoEndpoint;
@@ -93,19 +100,27 @@ public class SupportEndpoint {
 		this.heapDumpWebEndpoint = headDumpEndpoint;
 		this.meterRegistry = meterRegistry;
 		this.traceEndpoint = traceEndpoint;
+		this.scheduledTasksEndpoint = scheduledTasksEndpoint;
+		this.requestMappingEndpoint = requestMappingEndpoint;
+		this.conditionsReportEndpoint = conditionsReportEndpoint;
 		this.objectMapper = objectMapper;
 
 	}
 
+	/**
+	 * the actuator logic which collects the support information from all other actuators.
+	 *
+	 * @throws IOException
+	 */
 	@ReadOperation
 	public WebEndpointResponse<Resource> support() throws IOException {
 
-		List<File> createdFiles = new ArrayList<File>();
 		try {
 			if (this.lock.tryLock(this.timeout, TimeUnit.MILLISECONDS)) {
 				try {
+					List<File> createdFiles = null;
 					try {
-						createSupportInformation(createdFiles);
+						createdFiles = createSupportInformation();
 						File destZipFile = createZipFile(createdFiles);
 						return new WebEndpointResponse<Resource>(new TemporaryFileSystemResource(destZipFile));
 
@@ -129,14 +144,16 @@ public class SupportEndpoint {
 	 * @param createdFiles
 	 */
 	private void cleanupTemporaryFiles(List<File> createdFiles) {
-		for (File createdFile : createdFiles) {
-			createdFile.delete();
+		if (createdFiles!=null) {
+			for (File createdFile : createdFiles) {
+				createdFile.delete();
+			}
 		}
 
 	}
 
 	private File createZipFile(List<File> createdFiles) throws IOException {
-		File destZipFile = Files.createTempFile("support", ".zip").toFile();
+		File destZipFile = Files.createTempFile("support_" + dateFormat.format(new Date())+"_", ".zip").toFile();
 		ZipUtil.packEntries((File[]) createdFiles.toArray(new File[createdFiles.size()]), destZipFile,
 				new NameMapper() {
 
@@ -149,11 +166,12 @@ public class SupportEndpoint {
 	}
 
 	/**
-	 * @param withHeapDump
-	 * @param createdFiles
 	 * @throws JsonProcessingException
 	 */
-	private void createSupportInformation(List<File> createdFiles) throws JsonProcessingException {
+	private List<File> createSupportInformation() throws JsonProcessingException {
+
+		List<File> createdFiles = new ArrayList<>();
+
 		if (beansEndpoint != null) {
 			createFileWithInformation("beans",
 					objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(beansEndpoint.beans()),
@@ -163,6 +181,27 @@ public class SupportEndpoint {
 		if (infoEndpoint != null) {
 			createFileWithInformation("info",
 					objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(infoEndpoint.info()),
+					createdFiles);
+		}
+
+		if (requestMappingEndpoint != null){
+			createFileWithInformation("requestMappings",
+					objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString
+							(requestMappingEndpoint.mappings()),
+					createdFiles);
+		}
+
+		if (conditionsReportEndpoint != null){
+			createFileWithInformation("conditionsReport",
+					objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString
+							(conditionsReportEndpoint.getEvaluationReport()),
+					createdFiles);
+		}
+
+		if (scheduledTasksEndpoint != null){
+			createFileWithInformation("scheduledTasks",
+					objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString
+							(scheduledTasksEndpoint.scheduledTasks()),
 					createdFiles);
 		}
 
@@ -176,6 +215,15 @@ public class SupportEndpoint {
 			createFileWithInformation("threaddump",
 					objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(threadDumpEndpoint.threadDump()),
 					createdFiles);
+
+			StringBuffer threaddumpPlain = new StringBuffer();
+			List<ThreadInfo> threads = threadDumpEndpoint.threadDump().getThreads();
+			for (ThreadInfo thread: threads){
+				threaddumpPlain.append(thread.toString());
+			}
+
+			createFileWithInformation("threaddump_plain", threaddumpPlain.toString(), createdFiles);
+
 		}
 
 		if (auditEventsEndpoint != null) {
@@ -220,30 +268,6 @@ public class SupportEndpoint {
 			}
 		}
 
-		/*
-		 * if (heapDumpWebEndpoint != null && withHeapDump != null && withHeapDump ==
-		 * Boolean.TRUE) { WebEndpointResponse<Resource> heapDump =
-		 * heapDumpWebEndpoint.heapDump(Boolean.TRUE); if (heapDump.getBody() != null)
-		 * try { createdFiles.add(heapDump.getBody().getFile()); } catch (IOException e)
-		 * { throw new RuntimeException("Cannot return a file for the heapdump created",
-		 * e); } }
-		 */
-
-		// we cannot use the metricsendpoint because the ListNamesResponse etc. are not
-		// visible here...
-		/*
-		 * if (metricsEndpoint != null) { String metricNamesOutput =
-		 * objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(
-		 * metricsEndpoint.listNames()); Set<String> metricNames =
-		 * metricsEndpoint.listNames().getNames(); StringBuilder metricValues = new
-		 * StringBuilder(); for (String metricName : metricNames) {
-		 * metricValues.append(objectMapper.writerWithDefaultPrettyPrinter().
-		 * writeValueAsString(metricsEndpoint.metric(metricName))); }
-		 * createFileWithInformation("metrics", metricNamesOutput +
-		 * metricValues.toString(), createdFiles); }
-		 */
-		
-
 		if (meterRegistry != null) {
 			Collection<Meter> meters = meterRegistry.getMeters();
 			StringBuilder meterValues = new StringBuilder();
@@ -262,6 +286,8 @@ public class SupportEndpoint {
 					createdFiles);
 
 		}
+
+		return createdFiles;
 	}
 
 	private Path createFileWithInformation(String fileName, CharSequence data, List<File> createdFiles) {
